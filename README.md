@@ -28,3 +28,5 @@ See [`GLOSSARY.md`](GLOSSARY.md) for the definitions of these terms. Use the glo
 Issues are tracked in [GitHub Issues](https://github.com/stvijayanand/plumb/issues). New issues start as `needs-triage`; the full label set is described in [`docs/agents/triage-labels.md`](docs/agents/triage-labels.md).
 
 Before working in an area, read `GLOSSARY.md` and any ADRs in `docs/adr/` that touch it.
+
+Keep this README current as the project moves through its phases. When a change alters what Plumb does, how the repo is laid out, or how to set up, build, run or test it, update the matching section here (including the **Status** note) in the same change.
