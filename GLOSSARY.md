@@ -36,6 +36,10 @@ _Avoid_: Rolling reserve, holdback
 A transfer of a merchant's available funds from the FBO account to the merchant's bank account.
 _Avoid_: Settlement, disbursement
 
+**Bank rail**:
+The ACH-style bank transfer network that carries payouts from the FBO account to merchants' bank accounts; simulated in Plumb.
+_Avoid_: Payout rail, bank network
+
 **Payouts in transit**:
 Funds already taken out of merchant payable for a payout that the bank has not yet confirmed as paid.
 _Avoid_: Pending payouts, outgoing

@@ -100,7 +100,7 @@ None of these directories exist yet. See [Repository layout](#repository-layout)
 | Group | Terms |
 | --- | --- |
 | Parties | Platform, Merchant, Payer |
-| Money held | FBO account, Merchant payable, Risk reserve, Payout, Payouts in transit, Payout return, Unsettled balance, Available balance, Payout hold |
+| Money held | FBO account, Merchant payable, Risk reserve, Payout, Bank rail, Payouts in transit, Payout return, Unsettled balance, Available balance, Payout hold |
 | Ledger | Pending entry, Posted entry |
 | Risk | Merchant risk policy |
 
