@@ -41,7 +41,7 @@ The orchestrator owns every payment's state. Nothing moves until the risk servic
 | 4 | Review queue and ops console | Python / TS | Transactions scored "review" stay authorized but not captured. Analysts decide against an SLA timer, with auto-void on expiry. Outcomes feed back as training labels. |
 | 5 | Reconciliation and monitoring | Python batch | Daily three-way match of ledger, orchestrator records and PSP settlement file. Breaks are classified and ticketed, not silently fixed. |
 | 6 | PSP simulator | Java | Deterministic by default, with a chaos mode: latency, timeout after success, duplicate and out-of-order webhooks, partial settlements. |
-| 7 | Payouts and merchant risk policy | Java | Payout lifecycle `scheduled → initiated → sent → paid`, with a `returned` branch that puts the money back in available. A simulated bank rail sends ACH-style transfers that can be paid, delayed, or returned days later (e.g. closed account); returns are the payout equivalent of a PSP timeout after success. The merchant risk policy is deterministic, not a model: thresholds on refund rate, chargeback rate and account age set each merchant's reserve percentage and trigger payout holds. It acts on the available balance, outside the auth path. Only settled funds are eligible for payout; the schedule (cadence, delay after capture, reserve percentage) is configuration, with values tracked in a ticket. |
+| 7 | Payouts and merchant risk policy | Java | Payout lifecycle `scheduled → initiated → sent → paid`, with a `returned` branch that puts the money back in available. A simulated bank rail sends ACH-style transfers that can be paid, delayed, or returned days later (e.g. closed account); returns are the payout equivalent of a PSP timeout after success. The merchant risk policy is deterministic, not a model: thresholds on refund rate, chargeback rate and account age set each merchant's reserve percentage and trigger payout holds. It acts on the available balance, outside the auth path. Only settled funds are eligible for payout. Cadence, delay after capture and reserve are per-merchant configuration in a table, by merchant tier: new merchants weekly at T+7 days with a 10% reserve per capture released after 30 days, established merchants daily at T+2 business days with no reserve; the risk policy moves merchants between tiers. Payouts under $10 carry forward, business days are weekdays only, and the scheduler runs on a simulated clock so demos and tests can advance days. |
 
 ### Design principles
 
@@ -102,7 +102,7 @@ None of these directories exist yet. See [Repository layout](#repository-layout)
 | Parties | Platform, Merchant, Payer |
 | Money held | FBO account, Merchant payable, Risk reserve, Payout, Bank rail, Payouts in transit, Payout return, Unsettled balance, Available balance, Payout hold |
 | Ledger | Pending entry, Posted entry |
-| Risk | Merchant risk policy |
+| Risk | Merchant risk policy, Merchant tier |
 
 ---
 

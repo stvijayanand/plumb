@@ -75,3 +75,7 @@ _Avoid_: Committed entry, settled entry
 **Merchant risk policy**:
 The deterministic rules that set each merchant's risk reserve percentage and place payout holds, based on the merchant's refund rate, chargeback rate and account age.
 _Avoid_: Merchant scoring, merchant model, underwriting model
+
+**Merchant tier**:
+The class a merchant is placed in, new or established, that sets its default payout cadence, delay after capture and risk reserve. The merchant risk policy moves merchants between tiers.
+_Avoid_: Merchant level, risk band, merchant plan
