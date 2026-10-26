@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plumb Postings Prototype</title>
+<style>
+  :root { --ink:#1d2330; --muted:#667085; --line:#e4e7ec; --bg:#f8f9fb; --card:#fff; --accent:#2f5bea; --accent-soft:#eaf0ff; --bad:#c4320a; --bad-soft:#fff1ec; --warn:#a15c07; --warn-soft:#fff8e6; --good:#067647; --good-soft:#ecfdf3; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); background:var(--bg); }
+  header { padding:20px 24px 8px; max-width:1500px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  h3 { font-size:13px; margin:14px 0 6px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .proto { display:inline-block; font-size:11px; font-weight:600; background:var(--warn-soft); color:var(--warn); border-radius:4px; padding:1px 6px; margin-left:6px; vertical-align:middle; }
+  .intro { color:var(--muted); max-width:1000px; }
+  main { display:grid; grid-template-columns:minmax(340px, 420px) 1fr; gap:16px; padding:8px 24px 40px; max-width:1500px; margin:0 auto; }
+  @media (max-width:900px) { main { grid-template-columns:1fr; padding:8px 16px 40px; } header { padding:16px; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:16px; }
+  button { font:inherit; border:1px solid var(--line); background:#fff; border-radius:6px; padding:5px 10px; cursor:pointer; margin:2px 2px 2px 0; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.45; cursor:default; }
+  select, input { font:inherit; padding:4px 6px; border:1px solid var(--line); border-radius:6px; }
+  input[type=number] { width:110px; }
+  .row { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:6px 0; }
+  .row label { color:var(--muted); font-size:12px; }
+  .tabs { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:10px; }
+  .tabs button { font-size:12px; }
+  .tabs button.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
+  ol.steps { padding-left:20px; margin:8px 0; }
+  ol.steps li { margin:4px 0; }
+  ol.steps li.done { color:var(--muted); }
+  ol.steps li.done button { opacity:.55; }
+  .desc { color:var(--ink); }
+  .desc p { margin:4px 0; }
+  .banner { border-radius:6px; padding:8px 10px; margin-bottom:10px; }
+  .banner.bad { background:var(--bad-soft); color:var(--bad); }
+  .banner.info { background:var(--accent-soft); color:#1f3d99; }
+  table { border-collapse:collapse; width:100%; }
+  th, td { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:12px; color:var(--muted); font-weight:600; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  tr.changed td { background:var(--accent-soft); }
+  .neg { color:var(--bad); }
+  .tag { font-size:11px; color:var(--muted); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:1200px) { .grid2 { grid-template-columns:1fr; } }
+  .check { display:flex; gap:8px; padding:5px 0; border-bottom:1px solid var(--line); }
+  .check .mark { width:20px; flex:none; font-weight:700; }
+  .ok .mark { color:var(--good); } .fail .mark { color:var(--bad); } .note .mark { color:var(--warn); }
+  .check small { color:var(--muted); display:block; }
+  .entry { border:1px solid var(--line); border-radius:6px; padding:6px 8px; margin-bottom:8px; }
+  .entry.new { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-soft); }
+  .entry .hd { display:flex; justify-content:space-between; gap:8px; font-weight:600; }
+  .entry .hd .tag { font-weight:400; }
+  .entry table td { border-bottom:none; padding:1px 6px; }
+  .pill { font-size:11px; border-radius:10px; padding:0 7px; background:#f2f4f7; color:var(--muted); font-weight:500; }
+  .pill.pending { background:var(--warn-soft); color:var(--warn); }
+  .pill.posted { background:var(--good-soft); color:var(--good); }
+  .notes { margin:6px 0 0; padding-left:18px; color:#1f3d99; }
+  .open-q { color:var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Plumb ledger: chart of accounts and postings <span class="proto">PROTOTYPE · throwaway</span></h1>
+  <p class="intro"><b>Question:</b> under the three-party model, what accounts does the ledger need, and exactly which debits and credits does each flow post (authorization, capture, partial capture, void, expiry, refunds, PSP settlement, platform and PSP fees, reserve holdback and release, payouts and payout returns)? Does every entry sum to zero, and do PSP clearing, merchant payable: unsettled and payouts in transit come back to zero when they should? Run a walkthrough, or poke at it with the free-play buttons. Fees: platform 4% of the captured amount, PSP 3% (absorbed by the platform). Acme Tools is a <i>new</i> merchant (10% reserve, released after 30 days); Birch Supply is <i>established</i> (no reserve).</p>
+</header>
+<main>
+  <div>
+    <div class="card">
+      <h2>Guided walkthroughs</h2>
+      <div class="tabs" id="tabs"></div>
+      <div id="scenario"></div>
+    </div>
+    <div class="card">
+      <h2>Free play</h2>
+      <div class="row"><label>Merchant</label><select id="fp-merchant"></select><label>Amount $</label><input id="fp-amount" type="number" value="1000" min="0" step="0.01"></div>
+      <div class="row">
+        <button data-fp="authorize">Card authorized</button>
+        <button data-fp="achDebit">ACH debit succeeded</button>
+        <button data-fp="payoutInitiate">Initiate payout</button>
+      </div>
+      <h3>Payment</h3>
+      <div class="row"><select id="fp-payment"></select></div>
+      <div class="row">
+        <button data-fp="capture">Capture (amount above)</button>
+        <button data-fp="void">Void</button>
+        <button data-fp="refund">Refund (amount above)</button>
+        <button data-fp="settleOne">PSP settles this payment</button>
+      </div>
+      <h3>Payout</h3>
+      <div class="row"><select id="fp-payout"></select></div>
+      <div class="row">
+        <button data-fp="payoutSent">Bank rail: sent</button>
+        <button data-fp="payoutPaid">Bank confirms paid</button>
+        <button data-fp="payoutReturn">Payout returned</button>
+      </div>
+      <h3>Platform and time</h3>
+      <div class="row">
+        <button data-fp="settleAll">PSP settles everything in one batch</button>
+      </div>
+      <div class="row">
+        <button data-fp="day1">1 day passes</button>
+        <button data-fp="day7">7 days pass</button>
+        <button data-fp="day30">30 days pass</button>
+        <button data-fp="reset">Reset</button>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div id="banner"></div>
+    <div class="grid2">
+      <div>
+        <div class="card"><h2>Accounts <span class="tag" id="day"></span></h2><div id="accounts"></div></div>
+        <div class="card"><h2>Checks</h2><div id="checks"></div></div>
+        <div class="card"><h2>Payments and payouts</h2><div id="objects"></div></div>
+      </div>
+      <div>
+        <div class="card"><h2>Journal <span class="tag">newest first; append-only</span></h2><div id="journal"></div></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+// ===================================================================
+// Ledger model: pure, no DOM. Liftable into ledger/ and payouts/.
+// Money is integer cents. Each entry's lines are {acct, dr, cr}.
+// ===================================================================
+const Ledger = (() => {
+  const CONFIG = { platformFeeBps: 400, pspFeeBps: 300, reserveDays: 30, authExpiryDays: 7, minPayout: 1000 };
+  const MERCHANTS = {
+    acme:  { name: 'Acme Tools',   tier: 'new',         reserveBps: 1000 },
+    birch: { name: 'Birch Supply', tier: 'established', reserveBps: 0 },
+  };
+  const PLATFORM_ACCOUNTS = [
+    ['psp_clearing',    'PSP clearing',         'asset',     'What the PSP owes the platform for captured payments it has not yet settled'],
+    ['fbo_cash',        'FBO cash',             'asset',     'Money in the FBO account at the sponsor bank'],
+    ['operating_cash',  'Operating cash',       'asset',     "The platform's own bank account, outside the FBO account"],
+    ['fee_revenue',     'Platform fee revenue', 'revenue',   'Fee the platform earns per captured payment'],
+    ['psp_fee_expense', 'PSP fee expense',      'expense',   'Fee the PSP charges, absorbed by the platform'],
+  ];
+  const MERCHANT_ACCOUNTS = [
+    ['unsettled',  'Merchant payable: unsettled', 'liability', 'Owed to the merchant, not yet settled by the PSP'],
+    ['available',  'Merchant payable: available', 'liability', 'Owed to the merchant, settled in FBO, eligible for payout'],
+    ['reserve',    'Risk reserve',                'liability', 'Owed to the merchant, held back for 30 days'],
+    ['in_transit', 'Payouts in transit',          'liability', 'Taken out of payable for a payout the bank has not confirmed'],
+  ];
+  const DEBIT_NORMAL = { asset: true, expense: true };
+
+  function accountsList() {
+    const list = PLATFORM_ACCOUNTS.map(([key, name, type, help]) => ({ key, name, type, help, owner: 'platform' }));
+    for (const m of Object.keys(MERCHANTS))
+      for (const [k, name, type, help] of MERCHANT_ACCOUNTS) list.push({ key: `${k}:${m}`, name, type, help, owner: m });
+    return list;
+  }
+  const ACCOUNTS = Object.fromEntries(accountsList().map(a => [a.key, a]));
+
+  function initial() {
+    return { day: 0, nextEntry: 1, nextPayment: 1, nextPayout: 1, entries: [], closures: {}, payments: {}, payouts: {},
+             holdbacks: [], psp: { owed: 0, items: [] }, error: null, notes: [], newEntries: [] };
+  }
+  const clone = s => JSON.parse(JSON.stringify(s));
+  const pct = (amount, bps) => Math.round(amount * bps / 10000);
+  const D = (acct, amt) => ({ acct, dr: amt, cr: 0 });
+  const C = (acct, amt) => ({ acct, dr: 0, cr: amt });
+  // Debit `from`, credit `to`; a negative amount flips the direction.
+  const move = (drAcct, crAcct, amt) => amt >= 0 ? [D(drAcct, amt), C(crAcct, amt)] : [D(crAcct, -amt), C(drAcct, -amt)];
+  function refuse(msg) { const e = new Error(msg); e.refused = true; throw e; }
+
+  function post(s, kind, label, lines, extra = {}) {
+    lines = lines.filter(l => l.dr + l.cr !== 0);
+    const dr = lines.reduce((t, l) => t + l.dr, 0), cr = lines.reduce((t, l) => t + l.cr, 0);
+    if (dr !== cr) throw new Error(`Entry "${label}" does not sum to zero`);
+    if (lines.length < 2) return null; // nothing to move
+    const e = { id: s.nextEntry++, kind, label, status: 'posted', day: s.day, lines, ...extra };
+    s.entries.push(e);
+    s.newEntries.push(e.id);
+    return e;
+  }
+
+  // Signed balances, debit-positive. Posted and open-pending kept apart.
+  function balances(s) {
+    const posted = {}, pending = {};
+    for (const a of Object.keys(ACCOUNTS)) { posted[a] = 0; pending[a] = 0; }
+    for (const e of s.entries) {
+      const target = e.status === 'posted' ? posted : (s.closures[e.id] ? null : pending);
+      if (!target) continue;
+      for (const l of e.lines) target[l.acct] += l.dr - l.cr;
+    }
+    return { posted, pending };
+  }
+  // Balance on the account's normal side (credit-normal accounts flip sign).
+  const normal = (acct, signed) => DEBIT_NORMAL[ACCOUNTS[acct].type] ? signed : -signed;
+  const bal = (s, acct) => normal(acct, balances(s).posted[acct]);
+
+  function payment(s, id) { const p = s.payments[id]; if (!p) refuse(`No payment ${id}.`); return p; }
+  function payout(s, id) { const p = s.payouts[id]; if (!p) refuse(`No payout ${id}.`); return p; }
+
+  function postCapture(s, p, amount, how) {
+    const m = p.merchant, platformFee = pct(amount, CONFIG.platformFeeBps), pspFee = pct(amount, CONFIG.pspFeeBps);
+    post(s, 'capture', `${how} ${p.id}`, [D('psp_clearing', amount), C(`unsettled:${m}`, amount)], { paymentId: p.id, pendingId: p.pendingEntry || undefined });
+    post(s, 'platform_fee', `Platform fee on ${p.id} (4%)`, [D(`unsettled:${m}`, platformFee), C('fee_revenue', platformFee)], { paymentId: p.id });
+    post(s, 'psp_fee', `PSP fee on ${p.id} (3%)`, [D('psp_fee_expense', pspFee), C('psp_clearing', pspFee)], { paymentId: p.id });
+    p.captured = amount; p.platformFee = platformFee; p.pspFee = pspFee; p.status = 'captured';
+    s.psp.owed += amount - pspFee;
+    s.psp.items.push({ paymentId: p.id, kind: 'capture', merchant: m, pspNet: amount - pspFee, unsettled: amount - platformFee, margin: platformFee - pspFee });
+  }
+
+  function closePending(s, p, how) {
+    s.closures[p.pendingEntry] = { by: how, day: s.day };
+    p.status = how === 'capture' ? 'captured' : how === 'void' ? 'voided' : 'expired';
+  }
+
+  function settle(s, items, label) {
+    if (!items.length) refuse('The PSP has nothing outstanding to settle here.');
+    const net = items.reduce((t, i) => t + i.pspNet, 0);
+    const perMerchant = {};
+    for (const i of items) perMerchant[i.merchant] = (perMerchant[i.merchant] || 0) + i.unsettled;
+    const lines = [...move('fbo_cash', 'psp_clearing', net)];
+    for (const [m, amt] of Object.entries(perMerchant)) lines.push(...move(`unsettled:${m}`, `available:${m}`, amt));
+    post(s, 'settlement', label, lines, { items: items.map(i => `${i.kind} ${i.paymentId}`) });
+    if (net < 0) s.notes.push(`Refunds exceed captures in this batch, so the PSP debits ${fmt(-net)} from the FBO account.`);
+    s.psp.owed -= net;
+    s.psp.items = s.psp.items.filter(i => !items.includes(i));
+    // The platform's share of what landed in FBO leaves at once, so FBO holds only merchant money.
+    const margin = items.reduce((t, i) => t + i.margin, 0);
+    post(s, 'sweep', 'Sweep platform margin to operating cash', move('operating_cash', 'fbo_cash', margin));
+    // Holdback: per settled capture, a share of what it put in the merchant's payable.
+    const byPayment = {};
+    for (const i of items) {
+      byPayment[i.paymentId] = byPayment[i.paymentId] || { merchant: i.merchant, net: 0, capture: false };
+      byPayment[i.paymentId].net += i.unsettled;
+      if (i.kind === 'capture') byPayment[i.paymentId].capture = true;
+      s.payments[i.paymentId].settled = s.payments[i.paymentId].settled || i.kind === 'capture';
+    }
+    for (const [pid, b] of Object.entries(byPayment)) {
+      const bps = MERCHANTS[b.merchant].reserveBps;
+      if (!b.capture || !bps || b.net <= 0) continue;
+      const amt = pct(b.net, bps);
+      const e = post(s, 'holdback', `Reserve holdback on ${pid} (10%)`, [D(`available:${b.merchant}`, amt), C(`reserve:${b.merchant}`, amt)], { paymentId: pid });
+      s.holdbacks.push({ entry: e.id, merchant: b.merchant, paymentId: pid, amount: amt, releaseDay: s.day + CONFIG.reserveDays, released: false });
+    }
+  }
+
+  const handlers = {
+    authorize(s, { merchant, amount }) {
+      if (!(amount > 0)) refuse('Amount must be positive.');
+      const id = `P${s.nextPayment++}`;
+      const p = { id, merchant, method: 'card', authorized: amount, captured: 0, refunded: 0, status: 'authorized', authDay: s.day, settled: false };
+      s.payments[id] = p;
+      const e = post(s, 'authorization', `Card authorization ${id}`, [D('psp_clearing', amount), C(`unsettled:${merchant}`, amount)], { paymentId: id });
+      e.status = 'pending';
+      p.pendingEntry = e.id;
+      s.notes.push('A pending entry: it shows in the pending column only and counts toward no balance.');
+    },
+    capture(s, { paymentId, amount }) {
+      const p = payment(s, paymentId);
+      if (p.status !== 'authorized') refuse(`${p.id} is ${p.status}; only an open authorization can be captured.`);
+      if (!(amount > 0)) refuse('Capture amount must be positive.');
+      if (amount > p.authorized) refuse(`Cannot capture ${fmt(amount)}: ${p.id} is authorized for only ${fmt(p.authorized)}.`);
+      closePending(s, p, 'capture');
+      postCapture(s, p, amount, amount < p.authorized ? 'Partial capture of' : 'Capture of');
+      if (amount < p.authorized) s.notes.push(`The remaining ${fmt(p.authorized - amount)} of the authorization lapses; nothing is posted for it.`);
+    },
+    void(s, { paymentId }) {
+      const p = payment(s, paymentId);
+      if (p.status !== 'authorized') refuse(`${p.id} is ${p.status}; only an open authorization can be voided.`);
+      closePending(s, p, 'void');
+      s.notes.push(`Pending entry #${p.pendingEntry} closed by void. Nothing is posted.`);
+    },
+    achDebit(s, { merchant, amount }) {
+      if (!(amount > 0)) refuse('Amount must be positive.');
+      const id = `P${s.nextPayment++}`;
+      const p = { id, merchant, method: 'ach', authorized: 0, captured: 0, refunded: 0, status: 'captured', settled: false };
+      s.payments[id] = p;
+      postCapture(s, p, amount, 'ACH debit');
+      s.notes.push('ACH has no authorization: submitting is authorize and capture in one, so there is no pending entry.');
+    },
+    refund(s, { paymentId, amount }) {
+      const p = payment(s, paymentId);
+      if (p.status !== 'captured') refuse(`${p.id} is ${p.status}; only a captured payment can be refunded.`);
+      if (!(amount > 0)) refuse('Refund amount must be positive.');
+      if (amount > p.captured - p.refunded) refuse(`Cannot refund ${fmt(amount)}: only ${fmt(p.captured - p.refunded)} of ${p.id} is left to refund.`);
+      const m = p.merchant, acct = p.settled ? `available:${m}` : `unsettled:${m}`;
+      post(s, 'refund', `Refund on ${p.id}`, [D(acct, amount), C('psp_clearing', amount)], { paymentId: p.id });
+      p.refunded += amount;
+      s.psp.owed -= amount;
+      s.psp.items.push({ paymentId: p.id, kind: 'refund', merchant: m, pspNet: -amount, unsettled: p.settled ? 0 : -amount, margin: 0 });
+      s.notes.push(`Refund debits ${p.settled ? 'available (the payment is settled)' : 'unsettled (the payment is not yet settled)'}. Both fees are kept.`);
+      if (bal(s, acct) < 0) s.notes.push(`${MERCHANTS[m].name}'s ${p.settled ? 'available' : 'unsettled'} balance is now negative. How it is recovered is for the negative-balance ADR.`);
+    },
+    settleOne(s, { paymentId }) {
+      payment(s, paymentId);
+      settle(s, s.psp.items.filter(i => i.paymentId === paymentId), `PSP settlement line for ${paymentId}`);
+    },
+    settleAll(s) {
+      settle(s, [...s.psp.items], 'PSP settlement batch, net of fees and refunds');
+    },
+    advance(s, { days }) {
+      s.day += days;
+      for (const p of Object.values(s.payments))
+        if (p.status === 'authorized' && s.day - p.authDay >= CONFIG.authExpiryDays) {
+          closePending(s, p, 'expiry');
+          s.notes.push(`${p.id}'s authorization expired after ${CONFIG.authExpiryDays} days. Pending entry #${p.pendingEntry} closed; nothing posted.`);
+        }
+      for (const h of s.holdbacks)
+        if (!h.released && s.day >= h.releaseDay) {
+          post(s, 'release', `Reserve release for ${h.paymentId}`, [D(`reserve:${h.merchant}`, h.amount), C(`available:${h.merchant}`, h.amount)], { paymentId: h.paymentId });
+          h.released = true;
+        }
+    },
+    payoutInitiate(s, { merchant }) {
+      const avail = bal(s, `available:${merchant}`);
+      if (avail <= 0) refuse(`${MERCHANTS[merchant].name} has nothing available to pay out (available is ${fmt(avail)}).`);
+      if (avail < CONFIG.minPayout) refuse(`${fmt(avail)} is below the $10 minimum payout; it carries forward.`);
+      const id = `PO${s.nextPayout++}`;
+      s.payouts[id] = { id, merchant, amount: avail, status: 'initiated' };
+      post(s, 'payout_initiated', `Payout ${id} initiated`, [D(`available:${merchant}`, avail), C(`in_transit:${merchant}`, avail)], { payoutId: id });
+    },
+    payoutSent(s, { payoutId }) {
+      const po = payout(s, payoutId);
+      if (po.status !== 'initiated') refuse(`${po.id} is ${po.status}; only an initiated payout can be sent.`);
+      po.status = 'sent';
+      s.notes.push(`${po.id} handed to the bank rail. Nothing is posted: the money is still in the FBO account.`);
+    },
+    payoutPaid(s, { payoutId }) {
+      const po = payout(s, payoutId);
+      if (po.status !== 'sent') refuse(`${po.id} is ${po.status}; only a sent payout can be confirmed paid.`);
+      po.status = 'paid';
+      post(s, 'payout_paid', `Payout ${po.id} confirmed paid`, [D(`in_transit:${po.merchant}`, po.amount), C('fbo_cash', po.amount)], { payoutId: po.id });
+    },
+    payoutReturn(s, { payoutId }) {
+      const po = payout(s, payoutId);
+      if (po.status === 'sent' || po.status === 'initiated') {
+        post(s, 'payout_returned', `Payout ${po.id} returned before paid`, [D(`in_transit:${po.merchant}`, po.amount), C(`available:${po.merchant}`, po.amount)], { payoutId: po.id });
+        s.notes.push('The money never left the FBO account, so the return just moves it back from in transit to available.');
+      } else if (po.status === 'paid') {
+        post(s, 'payout_returned', `Payout ${po.id} returned after paid`, [D('fbo_cash', po.amount), C(`available:${po.merchant}`, po.amount)], { payoutId: po.id });
+        s.notes.push('The bank sends the money back into the FBO account, and it is owed to the merchant again.');
+      } else refuse(`${po.id} is ${po.status}; it cannot be returned.`);
+      po.status = 'returned';
+    },
+    reset() { return initial(); },
+  };
+
+  function merchantFundsInFbo(s) {
+    let t = 0;
+    for (const m of Object.keys(MERCHANTS)) t += bal(s, `available:${m}`) + bal(s, `reserve:${m}`) + bal(s, `in_transit:${m}`);
+    return t;
+  }
+
+  function apply(state, action) {
+    if (action.type === 'reset') return initial();
+    const s = clone(state);
+    s.notes = []; s.newEntries = []; s.error = null;
+    try {
+      handlers[action.type](s, action);
+      return s;
+    } catch (e) {
+      if (!e.refused) throw e;
+      return { ...clone(state), error: e.message, notes: [], newEntries: [] };
+    }
+  }
+
+  function checks(s) {
+    const { posted, pending } = balances(s);
+    const out = [];
+    const unbalanced = s.entries.filter(e => e.lines.reduce((t, l) => t + l.dr - l.cr, 0) !== 0);
+    out.push({ level: unbalanced.length ? 'fail' : 'ok', text: `Every entry sums to zero (${s.entries.length} entries)` });
+    const trial = Object.values(posted).reduce((t, v) => t + v, 0);
+    out.push({ level: trial ? 'fail' : 'ok', text: `Trial balance: posted debits equal posted credits`, detail: trial ? `Off by ${fmt(trial)}` : '' });
+    const clearing = bal(s, 'psp_clearing');
+    out.push({ level: clearing === s.psp.owed ? 'ok' : 'fail', text: `PSP clearing matches what the PSP says it owes`, detail: `Ledger ${fmt(clearing)} · PSP ${fmt(s.psp.owed)}` });
+    const unsettled = Object.keys(MERCHANTS).reduce((t, m) => t + bal(s, `unsettled:${m}`), 0);
+    out.push({ level: 'info',
+      text: `Total unsettled ${fmt(unsettled)} vs PSP owes ${fmt(s.psp.owed)}: not a reconciliation check. They differ by platform fee minus PSP fee on unsettled payments; reconciliation compares PSP clearing instead.` });
+    const fbo = bal(s, 'fbo_cash'), merchantFunds = merchantFundsInFbo(s);
+    out.push({ level: fbo === merchantFunds ? 'ok' : 'fail', text: `FBO cash equals the merchant money it holds (available + reserve + in transit)`,
+      detail: `FBO ${fmt(fbo)} · merchant money ${fmt(merchantFunds)}` + (fbo < 0 ? ' · FBO is below zero: the platform is fronting a merchant debt' : '') });
+    const openPending = Object.values(pending).filter(v => v > 0).reduce((t, v) => t + v, 0);
+    const zeroes = [['PSP clearing', clearing], ['Unsettled (all merchants)', unsettled],
+      ['Payouts in transit (all)', Object.keys(MERCHANTS).reduce((t, m) => t + bal(s, `in_transit:${m}`), 0)], ['Open pending authorizations', openPending]];
+    for (const [name, v] of zeroes)
+      out.push({ level: 'info', text: `${name}: ${v === 0 ? 'back at zero' : `carrying ${fmt(v)} (still in flight)`}` });
+    return out;
+  }
+
+  return { CONFIG, MERCHANTS, ACCOUNTS, accountsList, initial, apply, balances, normal, checks };
+})();
+
+function fmt(c) {
+  const sign = c < 0 ? '−' : '';
+  return sign + '$' + (Math.abs(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// ===================================================================
+// Scenarios: each resets, then steps through actions in order.
+// ===================================================================
+const $ = c => Math.round(c * 100);
+const SCENARIOS = [
+  { title: 'Happy path', desc: `<p>The worked example settled while charting: a $1,000 card payment to Birch Supply (no reserve), $40 platform fee, $30 PSP fee absorbed by the platform.</p><p><b>Watch:</b> PSP clearing, unsettled and payouts in transit all end at zero, Birch is paid $960, and the platform's $10 margin is swept from FBO to operating cash in the same settlement.</p>`,
+    steps: [
+      ['Card authorized for $1,000', { type: 'authorize', merchant: 'birch', amount: $(1000) }],
+      ['Capture $1,000', { type: 'capture', paymentId: 'P1', amount: $(1000) }],
+      ['PSP settles P1 ($970 net of its fee)', { type: 'settleOne', paymentId: 'P1' }],
+      ['Initiate payout', { type: 'payoutInitiate', merchant: 'birch' }],
+      ['Bank rail: sent', { type: 'payoutSent', payoutId: 'PO1' }],
+      ['Bank confirms paid', { type: 'payoutPaid', payoutId: 'PO1' }],
+    ] },
+  { title: 'Reserve hold and release', desc: `<p>Acme Tools is a new merchant: 10% of each settled capture's net is held in its risk reserve for 30 days.</p><p><b>Watch:</b> settlement makes $960 available, the holdback moves $96 to the reserve, the first payout is $864, and the release 30 days later makes the $96 payable.</p>`,
+    steps: [
+      ['Card authorized for $1,000', { type: 'authorize', merchant: 'acme', amount: $(1000) }],
+      ['Capture $1,000', { type: 'capture', paymentId: 'P1', amount: $(1000) }],
+      ['PSP settles P1 (holdback posts too)', { type: 'settleOne', paymentId: 'P1' }],
+      ['Initiate payout', { type: 'payoutInitiate', merchant: 'acme' }],
+      ['Bank rail: sent', { type: 'payoutSent', payoutId: 'PO1' }],
+      ['Bank confirms paid', { type: 'payoutPaid', payoutId: 'PO1' }],
+      ['30 days pass (reserve releases)', { type: 'advance', days: 30 }],
+      ['Initiate payout of the release', { type: 'payoutInitiate', merchant: 'acme' }],
+      ['Bank rail: sent', { type: 'payoutSent', payoutId: 'PO2' }],
+      ['Bank confirms paid', { type: 'payoutPaid', payoutId: 'PO2' }],
+    ] },
+  { title: 'Partial capture', desc: `<p>An invoice is authorized at $1,000 but only $600 is captured.</p><p><b>Watch:</b> the pending entry closes and only $600 posts; fees are on $600 ($24 and $18); the $400 remainder lapses with no entry.</p>`,
+    steps: [
+      ['Card authorized for $1,000', { type: 'authorize', merchant: 'birch', amount: $(1000) }],
+      ['Capture $600', { type: 'capture', paymentId: 'P1', amount: $(600) }],
+      ['PSP settles P1', { type: 'settleOne', paymentId: 'P1' }],
+    ] },
+  { title: 'Void and expiry', desc: `<p>Two authorizations: one is voided, the other is never captured and expires after 7 days.</p><p><b>Watch:</b> the pending column fills and then empties. No posted entry appears, and capturing the expired one is refused.</p>`,
+    steps: [
+      ['Card authorized for $500 (P1)', { type: 'authorize', merchant: 'birch', amount: $(500) }],
+      ['Card authorized for $700 (P2)', { type: 'authorize', merchant: 'acme', amount: $(700) }],
+      ['Void P1', { type: 'void', paymentId: 'P1' }],
+      ['7 days pass (P2 expires)', { type: 'advance', days: 7 }],
+      ['Try to capture P2 (should be refused)', { type: 'capture', paymentId: 'P2', amount: $(700) }],
+    ] },
+  { title: 'Refund before settlement', desc: `<p>Birch captures $1,000 and refunds it in full before the PSP settles. The platform keeps its $40 fee and the PSP keeps its $30.</p><p><b>Watch:</b> unsettled goes to −$40 (Birch owes the fee). The PSP's net for the batch is −$30, so it debits the FBO account, and Birch ends at −$40 available.</p>`,
+    steps: [
+      ['Card authorized for $1,000', { type: 'authorize', merchant: 'birch', amount: $(1000) }],
+      ['Capture $1,000', { type: 'capture', paymentId: 'P1', amount: $(1000) }],
+      ['Refund $1,000', { type: 'refund', paymentId: 'P1', amount: $(1000) }],
+      ['PSP settles P1 (net −$30)', { type: 'settleOne', paymentId: 'P1' }],
+    ] },
+  { title: 'Refund after settlement', desc: `<p>Birch's $1,000 payment settles, then $200 is refunded before the payout runs.</p><p><b>Watch:</b> the refund debits available (the payment is settled) and PSP clearing goes to −$200 until the PSP nets it out of a later settlement. The payout is $760.</p>`,
+    steps: [
+      ['Card authorized for $1,000', { type: 'authorize', merchant: 'birch', amount: $(1000) }],
+      ['Capture $1,000', { type: 'capture', paymentId: 'P1', amount: $(1000) }],
+      ['PSP settles P1', { type: 'settleOne', paymentId: 'P1' }],
+      ['Refund $200', { type: 'refund', paymentId: 'P1', amount: $(200) }],
+      ['Initiate payout', { type: 'payoutInitiate', merchant: 'birch' }],
+      ['Bank rail: sent', { type: 'payoutSent', payoutId: 'PO1' }],
+      ['Bank confirms paid', { type: 'payoutPaid', payoutId: 'PO1' }],
+      ['PSP nets the refund in its next batch', { type: 'settleAll' }],
+    ] },
+  { title: 'Refund after payout', desc: `<p>Birch has been paid its $960, then refunds $400 to the payer.</p><p><b>Watch:</b> available goes to −$400 and, once the PSP nets the refund, the FBO account holds less than zero for Birch. The platform is covering Birch's debt. How that debt is recovered (future captures, reserve, ACH debit, payout hold) is for the negative-balance ADR, not this prototype.</p>`,
+    steps: [
+      ['Card authorized for $1,000', { type: 'authorize', merchant: 'birch', amount: $(1000) }],
+      ['Capture $1,000', { type: 'capture', paymentId: 'P1', amount: $(1000) }],
+      ['PSP settles P1', { type: 'settleOne', paymentId: 'P1' }],
+      ['Initiate payout', { type: 'payoutInitiate', merchant: 'birch' }],
+      ['Bank rail: sent', { type: 'payoutSent', payoutId: 'PO1' }],
+      ['Bank confirms paid', { type: 'payoutPaid', payoutId: 'PO1' }],
+      ['Refund $400', { type: 'refund', paymentId: 'P1', amount: $(400) }],
+      ['PSP nets the refund (debits FBO $400)', { type: 'settleAll' }],
+      ['Try to pay out (should be refused)', { type: 'payoutInitiate', merchant: 'birch' }],
+    ] },
+  { title: 'Batch settlement', desc: `<p>The PSP settles one batch net of its fees and refunds, covering two merchants: an Acme card capture of $1,000 with a $100 refund, a Birch card capture of $500, and a Birch ACH debit of $2,000.</p><p><b>Watch:</b> one settlement entry with a single FBO line for the net, plus one unsettled → available move per merchant, worked out from the batch's itemized lines. Acme's holdback is on the $860 its payment netted.</p>`,
+    steps: [
+      ['Acme: card authorized for $1,000 (P1)', { type: 'authorize', merchant: 'acme', amount: $(1000) }],
+      ['Capture P1', { type: 'capture', paymentId: 'P1', amount: $(1000) }],
+      ['Birch: card authorized for $500 (P2)', { type: 'authorize', merchant: 'birch', amount: $(500) }],
+      ['Capture P2', { type: 'capture', paymentId: 'P2', amount: $(500) }],
+      ['Birch: ACH debit succeeded for $2,000 (P3)', { type: 'achDebit', merchant: 'birch', amount: $(2000) }],
+      ['Refund $100 on P1', { type: 'refund', paymentId: 'P1', amount: $(100) }],
+      ['PSP settles everything in one batch', { type: 'settleAll' }],
+    ] },
+  { title: 'Payout returns', desc: `<p>Birch's bank rejects a payout twice: once while it is still in flight, once after the bank had confirmed it paid.</p><p><b>Watch:</b> a return before paid moves in transit back to available; a return after paid brings money back into FBO cash and credits available.</p>`,
+    steps: [
+      ['Card authorized for $1,000', { type: 'authorize', merchant: 'birch', amount: $(1000) }],
+      ['Capture $1,000', { type: 'capture', paymentId: 'P1', amount: $(1000) }],
+      ['PSP settles P1', { type: 'settleOne', paymentId: 'P1' }],
+      ['Initiate payout (PO1)', { type: 'payoutInitiate', merchant: 'birch' }],
+      ['Bank rail: sent', { type: 'payoutSent', payoutId: 'PO1' }],
+      ['PO1 returned before paid', { type: 'payoutReturn', payoutId: 'PO1' }],
+      ['Initiate payout again (PO2)', { type: 'payoutInitiate', merchant: 'birch' }],
+      ['Bank rail: sent', { type: 'payoutSent', payoutId: 'PO2' }],
+      ['Bank confirms paid', { type: 'payoutPaid', payoutId: 'PO2' }],
+      ['PO2 returned after paid', { type: 'payoutReturn', payoutId: 'PO2' }],
+    ] },
+  { title: 'Must be refused', desc: `<p>Attempts that should never post. Each refused step leaves the ledger unchanged.</p>`,
+    steps: [
+      ['Card authorized for $1,000', { type: 'authorize', merchant: 'birch', amount: $(1000) }],
+      ['Capture $1,200 (more than authorized)', { type: 'capture', paymentId: 'P1', amount: $(1200) }],
+      ['Pay out before settlement (nothing available)', { type: 'payoutInitiate', merchant: 'birch' }],
+      ['Capture $1,000', { type: 'capture', paymentId: 'P1', amount: $(1000) }],
+      ['Capture again', { type: 'capture', paymentId: 'P1', amount: $(1000) }],
+      ['Void after capture', { type: 'void', paymentId: 'P1' }],
+      ['Refund $1,500 (more than captured)', { type: 'refund', paymentId: 'P1', amount: $(1500) }],
+      ['Confirm a payout that does not exist', { type: 'payoutPaid', payoutId: 'PO1' }],
+    ] },
+];
+
+// ===================================================================
+// Page shell
+// ===================================================================
+let state = Ledger.initial();
+let prevPosted = Ledger.balances(state).posted;
+let current = 0, stepIndex = 0;
+
+function dispatch(action) {
+  prevPosted = Ledger.balances(state).posted;
+  state = Ledger.apply(state, action);
+  render();
+}
+
+function renderTabs() {
+  document.getElementById('tabs').innerHTML = SCENARIOS.map((sc, i) => `<button class="${i === current ? 'on' : ''}" data-tab="${i}">${sc.title}</button>`).join('');
+  const sc = SCENARIOS[current];
+  document.getElementById('scenario').innerHTML = `<div class="desc">${sc.desc}</div>
+    <div class="row"><button class="primary" id="start">Start (resets the ledger)</button></div>
+    <ol class="steps">${sc.steps.map(([label], i) => `<li class="${i < stepIndex ? 'done' : ''}"><button data-step="${i}" ${i === stepIndex ? '' : 'disabled'}>${label}</button></li>`).join('')}</ol>`;
+}
+
+function render() {
+  renderTabs();
+  const banner = document.getElementById('banner');
+  banner.innerHTML = state.error ? `<div class="banner bad"><b>Refused:</b> ${state.error}</div>`
+    : state.notes.length ? `<div class="banner info"><ul class="notes" style="margin:0">${state.notes.map(n => `<li>${n}</li>`).join('')}</ul></div>` : '';
+  document.getElementById('day').textContent = `day ${state.day}`;
+
+  const { posted, pending } = Ledger.balances(state);
+  const groups = [['platform', 'Platform']].concat(Object.entries(Ledger.MERCHANTS).map(([k, m]) => [k, `${m.name} (${m.tier}, ${m.reserveBps / 100}% reserve)`]));
+  let html = '<table><tr><th>Account</th><th>Type</th><th class="num">Balance</th><th class="num">Pending</th></tr>';
+  for (const [owner, label] of groups) {
+    html += `<tr><td colspan="4"><b>${label}</b></td></tr>`;
+    for (const a of Ledger.accountsList().filter(a => a.owner === owner)) {
+      const b = Ledger.normal(a.key, posted[a.key]), p = Ledger.normal(a.key, pending[a.key]);
+      const changed = posted[a.key] !== prevPosted[a.key];
+      html += `<tr class="${changed ? 'changed' : ''}" title="${a.help}"><td>${a.name}</td><td class="tag">${a.type}</td><td class="num ${b < 0 ? 'neg' : ''}">${fmt(b)}</td><td class="num tag">${p ? fmt(p) : ''}</td></tr>`;
+    }
+  }
+  document.getElementById('accounts').innerHTML = html + '</table><p class="tag">Balances are on each account\'s normal side; negative means the other way round. Hover an account for what it means. Highlighted rows changed in the last step.</p>';
+
+  document.getElementById('checks').innerHTML = Ledger.checks(state).map(c =>
+    `<div class="check ${c.level}"><span class="mark">${{ ok: '✓', fail: '✗', note: '!', info: '·' }[c.level]}</span><div>${c.text}${c.detail ? `<small>${c.detail}</small>` : ''}</div></div>`).join('');
+
+  const pays = Object.values(state.payments), pos = Object.values(state.payouts);
+  document.getElementById('objects').innerHTML =
+    (pays.length ? `<table><tr><th>Payment</th><th>Merchant</th><th>Method</th><th>Status</th><th class="num">Authorized</th><th class="num">Captured</th><th class="num">Refunded</th><th>Settled</th></tr>${pays.map(p =>
+      `<tr><td>${p.id}</td><td>${Ledger.MERCHANTS[p.merchant].name}</td><td>${p.method}</td><td>${p.status}</td><td class="num">${p.authorized ? fmt(p.authorized) : '—'}</td><td class="num">${fmt(p.captured)}</td><td class="num">${fmt(p.refunded)}</td><td>${p.settled ? 'yes' : 'no'}</td></tr>`).join('')}</table>` : '<p class="tag">No payments yet.</p>') +
+    (pos.length ? `<table style="margin-top:10px"><tr><th>Payout</th><th>Merchant</th><th>Status</th><th class="num">Amount</th></tr>${pos.map(p =>
+      `<tr><td>${p.id}</td><td>${Ledger.MERCHANTS[p.merchant].name}</td><td>${p.status}</td><td class="num">${fmt(p.amount)}</td></tr>`).join('')}</table>` : '') +
+    (state.holdbacks.length ? `<table style="margin-top:10px"><tr><th>Holdback</th><th class="num">Amount</th><th>Releases</th></tr>${state.holdbacks.map(h =>
+      `<tr><td>${h.paymentId} (${Ledger.MERCHANTS[h.merchant].name})</td><td class="num">${fmt(h.amount)}</td><td>${h.released ? 'released' : `day ${h.releaseDay}`}</td></tr>`).join('')}</table>` : '');
+
+  document.getElementById('journal').innerHTML = state.entries.length ? state.entries.slice().reverse().map(e => {
+    const closure = state.closures[e.id];
+    const status = e.status === 'pending' ? `<span class="pill pending">pending · ${closure ? `closed by ${closure.by}, day ${closure.day}` : 'open'}</span>` : `<span class="pill posted">posted</span>`;
+    const dr = e.lines.reduce((t, l) => t + l.dr, 0), cr = e.lines.reduce((t, l) => t + l.cr, 0);
+    return `<div class="entry ${state.newEntries.includes(e.id) ? 'new' : ''}"><div class="hd"><span>#${e.id} ${e.label}</span><span class="tag">day ${e.day} ${status}</span></div>
+      ${e.pendingId ? `<div class="tag">closes pending entry #${e.pendingId}</div>` : ''}
+      ${e.items ? `<div class="tag">covers: ${e.items.join(', ')}</div>` : ''}
+      <table>${e.lines.map(l => {
+        const a = Ledger.ACCOUNTS[l.acct], who = a.owner === 'platform' ? '' : ` · ${Ledger.MERCHANTS[a.owner].name}`;
+        return `<tr><td>${l.dr ? 'Dr' : '&nbsp;&nbsp;&nbsp;Cr'} ${a.name}<span class="tag">${who}</span></td><td class="num">${l.dr ? fmt(l.dr) : ''}</td><td class="num">${l.cr ? fmt(l.cr) : ''}</td></tr>`;
+      }).join('')}<tr><td class="tag">sums to zero ${dr === cr ? '✓' : '✗'}</td><td class="num tag">${fmt(dr)}</td><td class="num tag">${fmt(cr)}</td></tr></table></div>`;
+  }).join('') : '<p class="tag">No entries yet.</p>';
+
+  const mSel = document.getElementById('fp-merchant');
+  if (!mSel.options.length) mSel.innerHTML = Object.entries(Ledger.MERCHANTS).map(([k, m]) => `<option value="${k}">${m.name}</option>`).join('');
+  const pSel = document.getElementById('fp-payment'), pv = pSel.value;
+  pSel.innerHTML = pays.map(p => `<option value="${p.id}">${p.id} · ${Ledger.MERCHANTS[p.merchant].name} · ${p.status}</option>`).join('') || '<option value="">(none)</option>';
+  if (pays.some(p => p.id === pv)) pSel.value = pv; else if (pays.length) pSel.value = pays[pays.length - 1].id;
+  const oSel = document.getElementById('fp-payout'), ov = oSel.value;
+  oSel.innerHTML = pos.map(p => `<option value="${p.id}">${p.id} · ${Ledger.MERCHANTS[p.merchant].name} · ${p.status}</option>`).join('') || '<option value="">(none)</option>';
+  if (pos.some(p => p.id === ov)) oSel.value = ov; else if (pos.length) oSel.value = pos[pos.length - 1].id;
+}
+
+document.addEventListener('click', ev => {
+  const t = ev.target.closest('button');
+  if (!t) return;
+  if (t.dataset.tab !== undefined) { current = +t.dataset.tab; stepIndex = 0; renderTabs(); return; }
+  if (t.id === 'start') { stepIndex = 0; dispatch({ type: 'reset' }); return; }
+  if (t.dataset.step !== undefined) { const i = +t.dataset.step; stepIndex = i + 1; dispatch(SCENARIOS[current].steps[i][1]); return; }
+  const fp = t.dataset.fp;
+  if (!fp) return;
+  const merchant = document.getElementById('fp-merchant').value;
+  const amount = $(parseFloat(document.getElementById('fp-amount').value || '0'));
+  const paymentId = document.getElementById('fp-payment').value, payoutId = document.getElementById('fp-payout').value;
+  const actions = {
+    authorize: { type: 'authorize', merchant, amount }, achDebit: { type: 'achDebit', merchant, amount },
+    payoutInitiate: { type: 'payoutInitiate', merchant }, capture: { type: 'capture', paymentId, amount },
+    void: { type: 'void', paymentId }, refund: { type: 'refund', paymentId, amount }, settleOne: { type: 'settleOne', paymentId },
+    payoutSent: { type: 'payoutSent', payoutId }, payoutPaid: { type: 'payoutPaid', payoutId }, payoutReturn: { type: 'payoutReturn', payoutId },
+    settleAll: { type: 'settleAll' }, day1: { type: 'advance', days: 1 }, day7: { type: 'advance', days: 7 },
+    day30: { type: 'advance', days: 30 }, reset: { type: 'reset' },
+  };
+  if (fp === 'reset') stepIndex = 0;
+  dispatch(actions[fp]);
+});
+
+render();
+</script>
+</body>
+</html>
