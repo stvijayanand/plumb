@@ -70,6 +70,14 @@ _Avoid_: Hold entry, provisional entry
 A final ledger entry, written at capture or at any later money movement, that changes balances.
 _Avoid_: Committed entry, settled entry
 
+**PSP clearing**:
+The ledger account for what the PSP owes the platform: captures net of PSP fees and refunds, not yet settled into the FBO account. Reconciliation checks it against the PSP's own report.
+_Avoid_: PSP receivable, customer receivable
+
+**Margin sweep**:
+The move of the platform's own share of a settlement (platform fee minus PSP fee) out of the FBO account into the platform's operating cash, posted with each settlement so the FBO account holds only merchant money.
+_Avoid_: Fee withdrawal, revenue transfer
+
 ### Risk
 
 **Merchant risk policy**:
