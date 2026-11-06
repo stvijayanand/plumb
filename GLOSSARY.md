@@ -18,6 +18,14 @@ _Avoid_: Seller, client, customer
 A business that pays a merchant's invoice through the platform.
 _Avoid_: Customer, buyer, cardholder
 
+**Agent of payee**:
+The platform's role towards each merchant: it collects payments on the merchant's behalf under a written agreement, so a payer has paid the merchant once the platform receives the funds.
+_Avoid_: Collection agent, intermediary
+
+**Sponsor bank**:
+The bank that holds the FBO account and gives the platform access to send ACH transfers.
+_Avoid_: Partner bank, custodian
+
 ### Money held
 
 **FBO account**:
