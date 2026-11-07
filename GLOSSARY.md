@@ -33,8 +33,16 @@ The "for benefit of" bank account where funds owed to merchants are held, kept s
 _Avoid_: Platform cash, operating account
 
 **Merchant payable**:
-The amount the platform owes a merchant, split into an unsettled balance and an available balance. It can go negative when refunds arrive after a payout.
+The amount the platform owes a merchant, split into an unsettled balance and an available balance. It never goes below zero: a shortfall the merchant can't cover becomes due from merchant.
 _Avoid_: Merchant balance, wallet
+
+**Due from merchant**:
+What a merchant owes the platform after a refund or payer ACH return took more than the merchant's payable and risk reserve could cover, so the platform paid the difference from its own money.
+_Avoid_: Negative balance, merchant debt, merchant receivable
+
+**Merchant losses**:
+The platform's expense for amounts due from merchants that it has written off as unrecoverable.
+_Avoid_: Bad debt, credit losses
 
 **Risk reserve**:
 Funds held back from a merchant's payouts to cover later refunds and chargebacks.
