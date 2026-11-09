@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE: Plumb payment state machine (card and ACH)</title>
+<style>
+  :root { --ink:#1d2330; --muted:#667085; --line:#e4e7ec; --soft:#f6f7f9; --accent:#2f5bd3; --accent-soft:#e8eefc;
+          --ok:#1f7a4d; --ok-soft:#e6f4ec; --bad:#b42318; --bad-soft:#fdecea; --warn:#9a5b00; --warn-soft:#fff4e0; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--ink); background:#fff; }
+  main { max-width:1180px; margin:0 auto; padding:28px 24px 60px; }
+  h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:16px; margin:28px 0 10px; } h3 { font-size:13px; margin:14px 0 6px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .tag { display:inline-block; font-size:11px; font-weight:600; padding:2px 8px; border-radius:10px; background:var(--warn-soft); color:var(--warn); margin-bottom:8px; }
+  .intro { color:#344054; max-width:900px; } .intro p { margin:6px 0; }
+  .grid { display:grid; grid-template-columns: 380px 1fr; gap:24px; align-items:start; }
+  .panel { border:1px solid var(--line); border-radius:10px; padding:16px; background:#fff; }
+  .state-big { font-size:20px; font-weight:650; color:var(--accent); }
+  .pill { display:inline-block; font-size:12px; padding:1px 8px; border-radius:10px; background:var(--soft); color:var(--muted); }
+  .pill.final { background:var(--soft); color:var(--ink); } .pill.term { background:var(--bad-soft); color:var(--bad); } .pill.open { background:var(--ok-soft); color:var(--ok); }
+  dl { display:grid; grid-template-columns: 150px 1fr; gap:4px 10px; margin:12px 0 0; font-size:14px; }
+  dt { color:var(--muted); } dd { margin:0; }
+  dd.changed, .changed { background:#fff6cc; border-radius:4px; padding:0 4px; }
+  .path { font-size:13px; color:var(--muted); margin-top:10px; }
+  .result { margin-top:12px; padding:10px 12px; border-radius:8px; font-size:14px; }
+  .result.applied { background:var(--ok-soft); } .result.rejected { background:var(--bad-soft); } .result.ignored { background:var(--soft); } .result.break { background:var(--warn-soft); }
+  .result b { display:block; font-size:12px; text-transform:uppercase; letter-spacing:.04em; margin-bottom:2px; }
+  .refunds { font-size:13px; margin-top:6px; }
+  .btns { display:flex; flex-wrap:wrap; gap:6px; }
+  button { font:inherit; font-size:13px; padding:5px 10px; border:1px solid var(--line); border-radius:7px; background:#fff; cursor:pointer; color:var(--ink); }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.dim { color:#98a2b3; border-style:dashed; }
+  button.done { background:var(--soft); color:var(--muted); }
+  button.next { border-color:var(--accent); background:var(--accent-soft); }
+  .group { margin-bottom:10px; } .group-label { font-size:12px; color:var(--muted); margin-bottom:3px; }
+  .tabs { display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid var(--line); margin-bottom:12px; }
+  .tab { border:none; border-bottom:2px solid transparent; border-radius:0; padding:6px 10px; color:var(--muted); }
+  .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+  .steps { display:flex; flex-direction:column; gap:6px; align-items:flex-start; margin-top:10px; }
+  .scenario-desc p { margin:4px 0; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  tr.live td { background:var(--accent-soft); }
+  .log { font-size:13px; max-height:260px; overflow:auto; }
+  .log div { padding:3px 0; border-bottom:1px solid var(--line); }
+  .k { font-size:11px; font-weight:600; text-transform:uppercase; padding:0 5px; border-radius:4px; margin-right:6px; }
+  .k.applied { color:var(--ok); background:var(--ok-soft); } .k.rejected { color:var(--bad); background:var(--bad-soft); } .k.ignored { color:var(--muted); background:var(--soft); } .k.break { color:var(--warn); background:var(--warn-soft); }
+  .legend { font-size:13px; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <span class="tag">PROTOTYPE: throwaway, not production code</span>
+  <h1>Plumb payment state machine: card and ACH</h1>
+  <div class="intro">
+    <p><b>Question:</b> what states does a payment go through, which moves are legal, and how does one machine survive the awkward cases: a PSP timeout whose outcome is unknown, duplicate and out-of-order webhooks, review holds with an SLA, partial capture, refunds that fail after succeeding, retries after a decline, and ACH, which has no authorization and can be returned days after it succeeded?</p>
+    <p><b>The proposal to react to:</b> one payment record, two transition tables (card and ACH). Things Plumb or a person asks for (<i>commands</i>) are <b>rejected</b> when illegal. Things the PSP or bank reports (<i>PSP facts</i>) can't be rejected, because the money already moved. A fact is either applied, ignored as a duplicate or late arrival when the payment has already been through that state, or raised as a <b>reconciliation break</b> when it contradicts what Plumb knows. Refunds are their own small records, and settlement is an amount on the payment, not a state.</p>
+    <p class="legend">Assumed, not decided here: the risk check runs before authorization (the synchronous-vs-async ADR is still open); what happens when the risk service doesn't answer (fail-open vs fail-closed) isn't modelled. Every payment is $1,000. A payment gets at most 3 attempts.</p>
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="panel" id="state"></div>
+      <h2>Event log</h2>
+      <div class="panel log" id="log"></div>
+    </div>
+    <div>
+      <div class="panel">
+        <div class="tabs" id="tabs"></div>
+        <div id="scenario"></div>
+      </div>
+      <h2>Free play</h2>
+      <div class="panel" id="freeplay"></div>
+    </div>
+  </div>
+
+  <h2 id="table-title">Transition table</h2>
+  <p class="legend">Rows for the current state are highlighted. <b>Anything not in this table:</b> a command is rejected and nothing changes; a PSP fact is ignored if the payment has already been through the state it implies (in this attempt), otherwise it is a reconciliation break and nothing changes.</p>
+  <div class="panel"><table id="table"></table></div>
+</main>
+
+<script>
+// ---------------------------------------------------------------------------
+// Pure logic module: no DOM. apply(state, event) -> new state.
+// ---------------------------------------------------------------------------
+const PaymentMachine = (() => {
+  const AMOUNT = 100000;          // cents
+  const PARTIAL = 60000;
+  const MAX_ATTEMPTS = 3;
+
+  const CARD_DECLINES = {
+    insufficient_funds: { soft: true,  label: 'insufficient funds' },
+    stolen_card:        { soft: false, label: 'card reported stolen' },
+  };
+  const ACH_CODES = {
+    R01: { retry: true,  label: 'R01 insufficient funds' },
+    R02: { retry: false, label: 'R02 account closed (needs new bank details)' },
+    R10: { retry: false, unauth: true, label: 'R10 consumer account says unauthorized (60-day window)' },
+    R29: { retry: false, unauth: true, label: 'R29 business account says unauthorized (2-day window)' },
+  };
+
+  const STATES = {
+    created: 'Created', awaiting_step_up: 'Waiting for payer step-up',
+    authorizing: 'Authorizing at PSP', authorization_unknown: 'Authorization outcome unknown',
+    authorized: 'Authorized', in_review: 'Authorized, held for review',
+    capturing: 'Capturing at PSP', capture_unknown: 'Capture outcome unknown',
+    voiding: 'Voiding at PSP', void_unknown: 'Void outcome unknown',
+    captured: 'Captured', voided: 'Voided', expired: 'Authorization expired',
+    submitting: 'Submitting debit to PSP', submit_unknown: 'Submit outcome unknown',
+    processing: 'Processing at the bank', canceling: 'Canceling at PSP', succeeded: 'Succeeded',
+    canceled: 'Canceled', returned: "Returned by payer's bank",
+    declined: 'Declined by risk', failed: 'Failed', retry_scheduled: 'Retry scheduled',
+  };
+  const TERMINAL = ['declined', 'failed', 'voided', 'expired', 'canceled', 'returned'];
+  const MONEY_FINAL = ['captured', 'succeeded']; // no more capture; still open to refunds, settlement (and ACH returns)
+
+  // kind: command (can be rejected) | fact (PSP/bank report, never rejected) | system (clock/network)
+  const EVENTS = {
+    risk_approve: ['command', 'Risk service', 'Approve'],
+    risk_review: ['command', 'Risk service', 'Send to review'],
+    risk_step_up: ['command', 'Risk service', 'Step up'],
+    risk_decline: ['command', 'Risk service', 'Decline'],
+    step_up_passed: ['command', 'Payer', 'Passes step-up (e.g. 3-D Secure)'],
+    step_up_failed: ['command', 'Payer', 'Fails or abandons step-up'],
+    analyst_approve: ['command', 'Analyst', 'Approve'],
+    analyst_decline: ['command', 'Analyst', 'Decline'],
+    capture_full: ['command', 'Plumb', 'Capture in full'],
+    capture_partial: ['command', 'Plumb', 'Capture $600 of $1,000'],
+    void: ['command', 'Plumb', 'Void the authorization'],
+    cancel: ['command', 'Plumb', 'Cancel the debit'],
+    resend_same_key: ['command', 'Plumb', 'Resend with the same idempotency key'],
+    retry_new_key: ['command', 'Plumb', 'Retry with a new idempotency key'],
+    retry_now: ['command', 'Plumb', 'Run the scheduled retry'],
+    give_up: ['command', 'Plumb', 'Stop retrying'],
+    refund_200: ['command', 'Plumb', 'Refund $200'],
+    refund_rest: ['command', 'Plumb', 'Refund everything still refundable'],
+    call_timed_out: ['system', 'Network', 'PSP call times out (no answer)'],
+    review_sla_expired: ['system', 'Clock', 'Review SLA expires'],
+    psp_authorized: ['fact', 'PSP says', 'Authorized'],
+    psp_declined: ['fact', 'PSP says', 'Declined'],
+    psp_captured: ['fact', 'PSP says', 'Captured'],
+    psp_voided: ['fact', 'PSP says', 'Voided'],
+    psp_expired: ['fact', 'PSP says', 'Authorization expired'],
+    psp_not_found: ['fact', 'PSP says', 'No record of that request'],
+    psp_processing: ['fact', 'PSP says', 'Debit accepted, processing'],
+    psp_succeeded: ['fact', 'PSP says', 'Debit succeeded'],
+    psp_failed: ['fact', 'PSP says', 'Debit failed'],
+    psp_canceled: ['fact', 'PSP says', 'Debit canceled'],
+    psp_cancel_too_late: ['fact', 'PSP says', 'Too late to cancel'],
+    psp_returned: ['fact', 'PSP says', 'Debit returned after success'],
+    psp_settled_part: ['fact', 'PSP says', 'Settled $400 into FBO'],
+    psp_settled_rest: ['fact', 'PSP says', 'Settled the rest into FBO'],
+    refund_succeeded: ['fact', 'PSP says', 'Refund succeeded'],
+    refund_failed: ['fact', 'PSP says', 'Refund failed'],
+  };
+  const kind = t => EVENTS[t][0];
+  const label = ev => {
+    const [, who, text] = EVENTS[ev.type];
+    const code = ev.code ? ` (${(CARD_DECLINES[ev.code] || ACH_CODES[ev.code]).label})` : '';
+    return `${who}: ${text}${code}`;
+  };
+
+  // A fact implies the payment has reached one of these states (in this attempt).
+  const IMPLIES = {
+    psp_authorized: ['authorized', 'in_review'], psp_declined: ['retry_scheduled', 'failed'],
+    psp_captured: ['captured'], psp_voided: ['voided'], psp_expired: ['expired'],
+    psp_processing: ['processing'], psp_succeeded: ['succeeded'], psp_failed: ['retry_scheduled', 'failed'],
+    psp_canceled: ['canceled'], psp_cancel_too_late: ['processing'], psp_returned: ['returned'],
+  };
+
+  class Refusal extends Error {}
+  const refuse = msg => { throw new Refusal(msg); };
+  const $ = c => '$' + (c / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
+
+  const refundable = s => s.captured - s.refunds.filter(r => r.status !== 'failed').reduce((t, r) => t + r.amount, 0);
+  const refundedOk = s => s.refunds.filter(r => r.status === 'succeeded').reduce((t, r) => t + r.amount, 0);
+
+  // ---- shared effects ----
+  const authorize = s => {
+    s.authorized = s.amount; s.pendingEntry = true;
+    return s.reviewHold
+      ? { to: 'in_review', note: `Hold of ${$(s.amount)} placed. Ledger: pending entry written. Capture is held until an analyst decides.` }
+      : { to: 'authorized', note: `Hold of ${$(s.amount)} placed. Ledger: pending entry written (counts toward no balance).` };
+  };
+  const cardDecline = (s, ev) => {
+    const d = CARD_DECLINES[ev.code]; s.lastFailure = d.label;
+    if (d.soft && s.attempt < MAX_ATTEMPTS) return { to: 'retry_scheduled', note: `Soft decline (${d.label}). Attempt ${s.attempt + 1} of ${MAX_ATTEMPTS} scheduled. No ledger entry.` };
+    return { to: 'failed', note: d.soft ? `Soft decline, but all ${MAX_ATTEMPTS} attempts are used.` : `Hard decline (${d.label}): never retried.` };
+  };
+  const achFail = (s, ev) => {
+    const c = ACH_CODES[ev.code]; s.lastFailure = c.label;
+    if (c.unauth) s.mandate = 'revoked';
+    if (c.retry && s.attempt < MAX_ATTEMPTS) return { to: 'retry_scheduled', note: `${c.label}. Reinitiation ${s.attempt} of 2 scheduled ("RETRY PYMT", same amount). Nothing was posted, so no ledger entry.` };
+    if (c.retry) return { to: 'failed', note: `${c.label}, and both reinitiations Nacha allows are used.` };
+    return { to: 'failed', note: `${c.label}: not retryable${c.unauth ? '; the mandate is revoked' : ''}. Nothing was posted.` };
+  };
+  const closePending = (how) => s => { s.pendingEntry = false; return { note: `Ledger: pending entry closed by ${how}; nothing posted.` }; };
+  const startCapture = (s, ev) => {
+    s.captureRequested = ev.type === 'capture_full' ? s.authorized : PARTIAL;
+    return { note: `Plumb asks the PSP to capture ${$(s.captureRequested)} (one capture only).` };
+  };
+  const captured = s => {
+    s.captured = s.captureRequested; s.pendingEntry = false;
+    const lapse = s.authorized - s.captured;
+    return { note: `Ledger: pending entry closed; capture of ${$(s.captured)} posted to merchant payable: unsettled (fees post now too).${lapse ? ` The other ${$(lapse)} lapses: no second capture.` : ''}` };
+  };
+  const requestRefund = (s, ev) => {
+    const left = refundable(s);
+    const amount = ev.type === 'refund_200' ? 20000 : left;
+    if (left <= 0) refuse('Nothing left to refund: earlier refunds (requested or succeeded) already cover the whole capture.');
+    if (amount > left) refuse(`Only ${$(left)} is still refundable; refunds already requested count against it.`);
+    if (s.method === 'ach' && (amount !== s.captured || s.refunds.some(r => r.status !== 'failed')))
+      refuse('ACH refunds are full refunds only, once (Stripe: no partial refunds for ACH Direct Debit).');
+    s.refunds.push({ id: 'R' + (s.refunds.length + 1), amount, status: 'requested' });
+    return { note: `Refund of ${$(amount)} sent to the PSP with its own idempotency key. Nothing posted until the PSP confirms.` };
+  };
+  const refundSucceeded = s => {
+    const r = [...s.refunds].reverse().find(r => r.status === 'requested');
+    if (!r) return { outcome: 'ignored', note: 'No refund is waiting for an answer: a duplicate event. Ignored.' };
+    r.status = 'succeeded';
+    return { note: `Refund ${r.id} succeeded. Ledger: ${$(r.amount)} posted against merchant payable (${s.settled > 0 ? 'available' : 'unsettled'}), credit PSP clearing.${refundedOk(s) === s.captured ? ' The payment is now fully refunded; its state stays the same.' : ''}` };
+  };
+  const refundFailed = s => {
+    const r = [...s.refunds].reverse().find(r => r.status === 'requested' || r.status === 'succeeded');
+    if (!r) return { outcome: 'ignored', note: 'No refund that could fail: a duplicate event. Ignored.' };
+    const was = r.status; r.status = 'failed';
+    return { note: was === 'succeeded'
+      ? `Refund ${r.id} failed after succeeding. Ledger: the refund entry is reversed and ${$(r.amount)} is refundable again. The payer was not repaid: someone has to follow up.`
+      : `Refund ${r.id} failed before succeeding. Nothing was posted; ${$(r.amount)} is refundable again.` };
+  };
+  const settle = part => s => {
+    const owed = s.captured - s.settled;
+    const amt = part ? Math.min(40000, owed) : owed;
+    if (owed <= 0) return { outcome: 'break', note: 'The PSP settled money Plumb thinks is already settled. Nothing changes; raised as a reconciliation break.' };
+    s.settled += amt;
+    return { note: `${$(amt)} settled into the FBO account (${$(s.settled)} of ${$(s.captured)} so far). Ledger: moved from unsettled to available. The payment's state doesn't change.` };
+  };
+
+  // ---- the transition table: [method, from[], on[], to, what happens, run?] ----
+  const R = (m, from, on, to, what, run) => ({ m, from: [].concat(from), on: [].concat(on), to, what, run });
+  const ROWS = [
+    // card
+    R('card', 'created', 'risk_approve', 'authorizing', 'Send the authorization to the PSP'),
+    R('card', 'created', 'risk_review', 'authorizing', 'Authorize anyway, but hold capture for review', s => { s.reviewHold = true; return { note: 'Authorizing now; capture will be held for an analyst.' }; }),
+    R('card', 'created', 'risk_step_up', 'awaiting_step_up', 'Ask the payer to authenticate first'),
+    R('card', 'created', 'risk_decline', 'declined', 'Stop. Not retried'),
+    R('card', 'awaiting_step_up', 'step_up_passed', 'authorizing', 'Send the authorization to the PSP'),
+    R('card', 'awaiting_step_up', 'step_up_failed', 'failed', 'Stop. The payer can start a new payment'),
+    R('card', ['authorizing', 'authorization_unknown'], 'psp_authorized', 'authorized / in review', 'Pending entry written; in review if risk said so', authorize),
+    R('card', ['authorizing', 'authorization_unknown'], 'psp_declined', 'retry scheduled / failed', 'Soft decline retried up to 3 attempts; hard decline fails', cardDecline),
+    R('card', 'authorizing', 'call_timed_out', 'authorization_unknown', 'Outcome unknown: never treat as declined', () => ({ note: 'The PSP may or may not have authorized. Plumb queries the PSP and waits for webhooks; it does not retry with a new key.' })),
+    R('card', 'authorization_unknown', ['psp_not_found', 'resend_same_key'], 'authorizing', 'Safe to resend: same key, so the PSP can only act once'),
+    R('card', 'authorized', ['capture_full', 'capture_partial'], 'capturing', 'Capture up to the authorized amount, once', startCapture),
+    R('card', 'authorized', 'void', 'voiding', 'Ask the PSP to release the hold'),
+    R('card', ['authorized', 'in_review', 'capturing', 'capture_unknown', 'voiding', 'void_unknown'], 'psp_expired', 'expired', 'The PSP let the hold lapse (about 7 days)', closePending('expiry')),
+    R('card', 'in_review', 'analyst_approve', 'authorized', 'Lift the hold; capture now allowed', s => { s.reviewHold = false; return { note: 'Review approved: the capture hold is lifted.' }; }),
+    R('card', 'in_review', ['analyst_decline', 'review_sla_expired'], 'voiding', 'Void the authorization (auto-void on SLA expiry)'),
+    R('card', ['capturing', 'capture_unknown'], 'psp_captured', 'captured', 'Close pending entry, post the capture; remainder lapses', captured),
+    R('card', 'capturing', 'call_timed_out', 'capture_unknown', 'Outcome unknown: query the PSP, wait for webhooks'),
+    R('card', 'capture_unknown', ['psp_not_found', 'resend_same_key'], 'capturing', 'Safe to resend with the same key'),
+    R('card', ['voiding', 'void_unknown'], 'psp_voided', 'voided', 'Close the pending entry, nothing posted', closePending('void')),
+    R('card', 'voiding', 'call_timed_out', 'void_unknown', 'Outcome unknown: query the PSP, wait for webhooks'),
+    R('card', 'void_unknown', ['psp_not_found', 'resend_same_key'], 'voiding', 'Safe to resend with the same key'),
+    R('card', 'captured', ['refund_200', 'refund_rest'], 'captured', 'New refund record; partial refunds allowed', requestRefund),
+    R('card', 'captured', 'refund_succeeded', 'captured', 'Post the refund', refundSucceeded),
+    R('card', 'captured', 'refund_failed', 'captured', 'Reverse the refund if it had posted', refundFailed),
+    R('card', 'captured', 'psp_settled_part', 'captured', 'Settlement amount grows (partial settlements allowed)', settle(true)),
+    R('card', 'captured', 'psp_settled_rest', 'captured', 'Settlement amount grows', settle(false)),
+    R('card', 'retry_scheduled', 'retry_now', 'created', 'New attempt: new PSP reference, scored by risk again', s => newAttempt(s)),
+    R('card', 'retry_scheduled', 'give_up', 'failed', 'Stop'),
+    // ach
+    R('ach', 'created', 'risk_approve', 'submitting', 'Submit the debit (authorize and capture in one)'),
+    R('ach', 'created', ['risk_review', 'risk_step_up'], 'in_review', 'Nothing can be held for a bank debit, so review happens before submitting'),
+    R('ach', 'created', 'risk_decline', 'declined', 'Stop. Not retried'),
+    R('ach', 'in_review', 'analyst_approve', 'submitting', 'Submit the debit'),
+    R('ach', 'in_review', ['analyst_decline', 'review_sla_expired'], 'canceled', 'Nothing was sent, so nothing to undo'),
+    R('ach', ['submitting', 'submit_unknown'], 'psp_processing', 'processing', 'The bank is working on it (up to 4 business days)'),
+    R('ach', ['submitting', 'submit_unknown', 'processing', 'canceling'], 'psp_failed', 'retry scheduled / failed', 'R01: up to 2 reinitiations; unauthorized revokes the mandate', achFail),
+    R('ach', 'submitting', 'call_timed_out', 'submit_unknown', 'Outcome unknown: query the PSP, wait for webhooks'),
+    R('ach', 'submit_unknown', ['psp_not_found', 'resend_same_key'], 'submitting', 'Safe to resend with the same key'),
+    R('ach', ['submit_unknown', 'processing', 'canceling'], 'psp_succeeded', 'succeeded', 'Post the capture to unsettled. No pending entry ever existed', s => { s.captured = s.amount; return { note: `Ledger: capture of ${$(s.amount)} posted to merchant payable: unsettled, with fees. There was no pending entry: ACH holds nothing.` }; }),
+    R('ach', 'processing', 'cancel', 'canceling', 'Only possible until the PSP locks the debit'),
+    R('ach', 'canceling', 'psp_canceled', 'canceled', 'Nothing was posted'),
+    R('ach', 'canceling', 'psp_cancel_too_late', 'processing', 'Back to waiting for the bank'),
+    R('ach', 'succeeded', 'psp_returned', 'returned', 'Post the return like a refund; unauthorized revokes the mandate', (s, ev) => {
+      const c = ACH_CODES[ev.code]; s.lastFailure = c.label; if (c.unauth) s.mandate = 'revoked';
+      const dbl = refundedOk(s) > 0;
+      return { warn: dbl, note: `${c.label}. Ledger: ${$(s.captured)} posted against merchant payable (${s.settled > 0 ? 'available' : 'unsettled'}), credit PSP clearing; shortfalls follow the negative-balance policy.${dbl ? ` Warning: ${$(refundedOk(s))} was already refunded, so the payer has been repaid twice. Raised for recovery.` : ''}` };
+    }),
+    R('ach', 'succeeded', ['refund_200', 'refund_rest'], 'succeeded', 'New refund record; full refunds only', requestRefund),
+    R('ach', 'succeeded', 'refund_succeeded', 'succeeded', 'Post the refund', refundSucceeded),
+    R('ach', 'succeeded', 'refund_failed', 'succeeded', 'Reverse the refund if it had posted', refundFailed),
+    R('ach', 'succeeded', 'psp_settled_part', 'succeeded', 'Settlement amount grows', settle(true)),
+    R('ach', 'succeeded', 'psp_settled_rest', 'succeeded', 'Settlement amount grows', settle(false)),
+    R('ach', 'retry_scheduled', 'retry_now', 'created', 'Reinitiate: new PSP reference, scored by risk again', s => newAttempt(s)),
+    R('ach', 'retry_scheduled', 'give_up', 'failed', 'Stop'),
+  ];
+
+  function newAttempt(s) {
+    if (s.method === 'ach' && s.mandate !== 'valid') refuse('The mandate is revoked: a new debit needs a new mandate.');
+    s.attempt += 1;
+    Object.assign(s, { authorized: 0, captureRequested: 0, reviewHold: false, pendingEntry: false, attemptPath: ['created'] });
+    return { note: `Attempt ${s.attempt}: a new PSP reference and a new idempotency key for this attempt. The payment and its API idempotency key stay the same. Risk scores it again.` };
+  }
+
+  function initial(method) {
+    return { method, state: 'created', amount: AMOUNT, attempt: 1, authorized: 0, captureRequested: 0, captured: 0, settled: 0,
+             reviewHold: false, pendingEntry: false, mandate: method === 'ach' ? 'valid' : null, lastFailure: null,
+             refunds: [], path: ['created'], attemptPath: ['created'], log: [], last: null };
+  }
+
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const rowFor = (s, type) => ROWS.find(r => r.m === s.method && r.from.includes(s.state) && r.on.includes(type));
+
+  function record(s, ev, outcome, note) {
+    const entry = { what: label(ev), outcome, note, state: s.state };
+    s.last = entry; s.log.unshift(entry);
+    return s;
+  }
+
+  function hint(s, type) {
+    const capture = type === 'capture_full' || type === 'capture_partial';
+    if (s.method === 'ach' && (capture || type === 'void')) return 'ACH has no authorization: submitting the debit is authorize and capture in one, so there is nothing to capture or void.';
+    if (s.method === 'card' && type === 'cancel') return 'Card payments are voided, not canceled.';
+    if (capture && s.state === 'in_review') return 'Capture is held while the payment is in review: an analyst has to approve first.';
+    if (capture && s.state === 'captured') return 'Only one capture per authorization: anything not captured has lapsed.';
+    if (capture && s.state === 'expired') return 'The authorization expired, so there is nothing left to capture.';
+    if (type.startsWith('refund') && !['captured', 'succeeded'].includes(s.state)) return 'Only captured money can be refunded. An open authorization is voided instead.';
+    if (type === 'resend_same_key') return 'Only meaningful while an outcome is unknown.';
+    return null;
+  }
+
+  function absorb(s, ev) {
+    const k = kind(ev.type), st = STATES[s.state].toLowerCase();
+    if (ev.type === 'retry_new_key')
+      return record(s, ev, 'rejected', 'Never. If the first request did reach the PSP, a new key lets it act twice (a double charge). Resend with the same key, or wait for the PSP to answer.');
+    if (k === 'command') return record(s, ev, 'rejected', (hint(s, ev.type) || `Not allowed while the payment is "${st}".`) + ' Nothing changed.');
+    if (k === 'system') return record(s, ev, 'ignored', `Nothing it applies to while the payment is "${st}".`);
+    const implied = IMPLIES[ev.type] || [];
+    if (implied.some(x => s.attemptPath.includes(x)))
+      return record(s, ev, 'ignored', 'The payment has already been through this state: a duplicate or late event. Nothing changed.');
+    return record(s, ev, 'break', `This contradicts Plumb's record (payment is "${st}"). Nothing changes; raised as a reconciliation break for a person to investigate.`);
+  }
+
+  function apply(state, ev) {
+    const s = clone(state);
+    const row = rowFor(s, ev.type);
+    if (!row) return absorb(s, ev);
+    try {
+      const res = row.run ? (row.run(s, ev) || {}) : {};
+      const to = res.to || (STATES[row.to] ? row.to : s.state);
+      if (to !== s.state) { s.state = to; s.path.push(to); s.attemptPath.push(to); }
+      return record(s, ev, res.outcome || (res.warn ? 'break' : 'applied'), res.note || row.what + '.');
+    } catch (e) {
+      if (!(e instanceof Refusal)) throw e;
+      return record(clone(state), ev, 'rejected', e.message);
+    }
+  }
+
+  const legal = s => ROWS.filter(r => r.m === s.method && r.from.includes(s.state)).flatMap(r => r.on);
+
+  return { STATES, TERMINAL, MONEY_FINAL, EVENTS, ROWS, CARD_DECLINES, ACH_CODES, initial, apply, legal, label, refundable, refundedOk, fmt: $ };
+})();
+
+// ---------------------------------------------------------------------------
+// Page shell
+// ---------------------------------------------------------------------------
+const M = PaymentMachine;
+let S = M.initial('card');
+let prev = null;
+let active = 0, stepIdx = 0;
+
+const E = (type, code) => code ? { type, code } : { type };
+const SCENARIOS = [
+  { title: 'Card happy path', method: 'card',
+    desc: '<p>Risk approves, the PSP authorizes, Plumb captures in full, and the PSP settles in two parts.</p><p><b>Watch:</b> the pending entry opens at authorization and closes at capture. Settlement changes the settled amount, not the state.</p>',
+    steps: [E('risk_approve'), E('psp_authorized'), E('capture_full'), E('psp_captured'), E('psp_settled_part'), E('psp_settled_rest')] },
+  { title: 'Timeout after success', method: 'card',
+    desc: '<p>Plumb sends the authorization and the call times out. The PSP did authorize; Plumb just never heard.</p><p><b>Watch:</b> the payment waits in "outcome unknown". Retrying with a new key is rejected (it could charge twice). The webhook resolves it, and its duplicate is ignored.</p>',
+    steps: [E('risk_approve'), E('call_timed_out'), E('retry_new_key'), E('psp_authorized'), E('psp_authorized'), E('capture_full'), E('psp_captured')] },
+  { title: 'Out-of-order webhooks', method: 'card',
+    desc: '<p>The capture webhook arrives before the capture call returns, then the call\'s answer arrives, then a stale "authorized" webhook from earlier.</p><p><b>Watch:</b> the first "captured" is applied; the second and the stale one are ignored, because the payment has already been through those states.</p>',
+    steps: [E('risk_approve'), E('psp_authorized'), E('capture_full'), E('psp_captured'), E('psp_captured'), E('psp_authorized')] },
+  { title: 'Review, SLA expires', method: 'card',
+    desc: '<p>Risk sends the payment to review. The card is authorized, but capture is held. Nobody decides in time.</p><p><b>Watch:</b> capturing during review is rejected. When the SLA expires the payment is voided automatically and the pending entry closes.</p>',
+    steps: [E('risk_review'), E('psp_authorized'), E('capture_full'), E('review_sla_expired'), E('psp_voided')] },
+  { title: 'Partial capture and refunds', method: 'card',
+    desc: '<p>$600 of a $1,000 authorization is captured. Then refunds: $200, then the remaining $400, then one more $200, then the PSP reports the $400 refund failed after succeeding.</p><p><b>Watch:</b> a second capture is rejected (the remainder lapsed). The extra $200 refund is rejected because nothing is left. The failed refund makes its $400 refundable again.</p>',
+    steps: [E('risk_approve'), E('psp_authorized'), E('capture_partial'), E('psp_captured'), E('capture_full'), E('refund_200'), E('refund_succeeded'), E('refund_rest'), E('refund_succeeded'), E('refund_200'), E('refund_failed')] },
+  { title: 'Authorization expires', method: 'card',
+    desc: '<p>The card is authorized but never captured. After about 7 days the PSP lets the hold lapse and tells Plumb.</p><p><b>Watch:</b> expiry is pushed by the PSP, not decided by Plumb. A late capture is rejected.</p>',
+    steps: [E('risk_approve'), E('psp_authorized'), E('psp_expired'), E('capture_full')] },
+  { title: 'Soft decline, retry', method: 'card',
+    desc: '<p>The PSP declines for insufficient funds. Plumb schedules a retry: a new attempt on the same payment.</p><p><b>Watch:</b> the attempt number goes up and risk scores the new attempt. A hard decline would go straight to failed.</p>',
+    steps: [E('risk_approve'), E('psp_declined', 'insufficient_funds'), E('retry_now'), E('risk_approve'), E('psp_authorized')] },
+  { title: 'Contradiction', method: 'card',
+    desc: '<p>The PSP reports a capture Plumb never asked for.</p><p><b>Watch:</b> a fact can\'t be rejected, but it can\'t be applied either: it is raised as a reconciliation break and the state stays put.</p>',
+    steps: [E('risk_approve'), E('psp_authorized'), E('psp_captured')] },
+  { title: 'ACH success, late return', method: 'ach',
+    desc: '<p>A business payer\'s debit is submitted, succeeds, settles, then comes back R29 (unauthorized, business account).</p><p><b>Watch:</b> there is no authorized state and no pending entry. "Succeeded" isn\'t final: the return posts like a refund and revokes the mandate.</p>',
+    steps: [E('risk_approve'), E('psp_processing'), E('psp_succeeded'), E('psp_settled_rest'), E('psp_returned', 'R29')] },
+  { title: 'ACH R01 and reinitiation', method: 'ach',
+    desc: '<p>The debit fails for insufficient funds three times.</p><p><b>Watch:</b> Nacha allows two reinitiations, so the third failure ends in failed. An unauthorized code (R10, R29) would stop at the first failure.</p>',
+    steps: [E('risk_approve'), E('psp_processing'), E('psp_failed', 'R01'), E('retry_now'), E('risk_approve'), E('psp_processing'), E('psp_failed', 'R01'), E('retry_now'), E('risk_approve'), E('psp_processing'), E('psp_failed', 'R01')] },
+  { title: 'ACH review, refund', method: 'ach',
+    desc: '<p>Risk sends an ACH payment to review. Nothing can be held on a bank debit, so the review happens before submitting.</p><p><b>Watch:</b> a $200 refund is rejected (ACH refunds are full only); a full refund is allowed.</p>',
+    steps: [E('risk_review'), E('analyst_approve'), E('psp_processing'), E('psp_succeeded'), E('refund_200'), E('refund_rest'), E('refund_succeeded')] },
+  { title: 'ACH return after refund', method: 'ach',
+    desc: '<p>The merchant refunds an ACH payment, then the payer\'s bank returns the original debit as well.</p><p><b>Watch:</b> the return still applies (the money already moved), but the payer has now been repaid twice. It is flagged for recovery.</p>',
+    steps: [E('risk_approve'), E('psp_processing'), E('psp_succeeded'), E('refund_rest'), E('refund_succeeded'), E('psp_returned', 'R10')] },
+];
+
+const FREE = [
+  ['Risk service', ['risk_approve', 'risk_review', 'risk_step_up', 'risk_decline'].map(t => E(t))],
+  ['Payer and analyst', ['step_up_passed', 'step_up_failed', 'analyst_approve', 'analyst_decline'].map(t => E(t))],
+  ['Plumb', ['capture_full', 'capture_partial', 'void', 'cancel', 'resend_same_key', 'retry_new_key', 'retry_now', 'give_up', 'refund_200', 'refund_rest'].map(t => E(t))],
+  ['PSP says (webhook or status query)', [E('psp_authorized'), E('psp_declined', 'insufficient_funds'), E('psp_declined', 'stolen_card'), E('psp_captured'), E('psp_voided'), E('psp_expired'), E('psp_not_found'),
+    E('psp_processing'), E('psp_succeeded'), E('psp_failed', 'R01'), E('psp_failed', 'R02'), E('psp_failed', 'R29'), E('psp_canceled'), E('psp_cancel_too_late'),
+    E('psp_returned', 'R29'), E('psp_returned', 'R10'), E('psp_settled_part'), E('psp_settled_rest'), E('refund_succeeded'), E('refund_failed')]],
+  ['Network and clock', [E('call_timed_out'), E('review_sla_expired')]],
+];
+
+function short(ev) { const [, , text] = M.EVENTS[ev.type]; const c = ev.code ? (M.CARD_DECLINES[ev.code] || M.ACH_CODES[ev.code]).label.split(' (')[0] : ''; return c ? `${text}: ${c}` : text; }
+
+function dispatch(ev) { prev = S; S = M.apply(S, ev); render(); }
+
+function render() {
+  const s = S, p = prev && prev.method === s.method ? prev : null;
+  const ch = (f) => p && JSON.stringify(p[f]) !== JSON.stringify(s[f]) ? ' class="changed"' : '';
+  const kindPill = M.TERMINAL.includes(s.state) ? '<span class="pill term">final</span>'
+    : M.MONEY_FINAL.includes(s.state) ? '<span class="pill open">final for capture; refunds and settlement still arrive</span>' : '<span class="pill">in progress</span>';
+  const refunds = s.refunds.length ? s.refunds.map(r => `${r.id} ${M.fmt(r.amount)} <i>${r.status}</i>`).join(' · ') : 'none';
+  document.getElementById('state').innerHTML = `
+    <div class="pill">${s.method === 'card' ? 'Card payment' : 'ACH debit'} · ${M.fmt(s.amount)}</div>
+    <div class="state-big" style="margin-top:6px">${M.STATES[s.state]}</div> ${kindPill}
+    <dl>
+      <dt>Attempt</dt><dd${ch('attempt')}>${s.attempt} of 3</dd>
+      ${s.method === 'card' ? `<dt>Authorized</dt><dd${ch('authorized')}>${M.fmt(s.authorized)}</dd>
+      <dt>Capture held</dt><dd${ch('reviewHold')}>${s.reviewHold ? 'yes, in review' : 'no'}</dd>
+      <dt>Pending entry</dt><dd${ch('pendingEntry')}>${s.pendingEntry ? 'open' : 'none'}</dd>` : `<dt>Mandate</dt><dd${ch('mandate')}>${s.mandate}</dd>`}
+      <dt>Captured</dt><dd${ch('captured')}>${M.fmt(s.captured)}</dd>
+      <dt>Settled</dt><dd${ch('settled')}>${M.fmt(s.settled)}</dd>
+      <dt>Refunds</dt><dd${ch('refunds')}>${refunds}</dd>
+      <dt>Still refundable</dt><dd>${M.fmt(Math.max(0, M.refundable(s)))}</dd>
+      ${s.lastFailure ? `<dt>Last failure</dt><dd${ch('lastFailure')}>${s.lastFailure}</dd>` : ''}
+    </dl>
+    <div class="path">Path: ${s.path.map(x => M.STATES[x]).join(' → ')}</div>
+    ${s.last ? `<div class="result ${s.last.outcome}"><b>${{ applied: 'Applied', rejected: 'Rejected', ignored: 'Ignored', break: 'Flagged' }[s.last.outcome]}: ${s.last.what}</b>${s.last.note}</div>` : '<div class="result ignored">Nothing has happened yet. Pick a walkthrough or press a button.</div>'}`;
+
+  document.getElementById('log').innerHTML = s.log.length
+    ? s.log.map(l => `<div><span class="k ${l.outcome}">${l.outcome}</span>${l.what} <span class="legend">→ ${M.STATES[l.state]}</span></div>`).join('')
+    : '<span class="legend">Empty.</span>';
+
+  // free play
+  const legal = M.legal(s);
+  document.getElementById('freeplay').innerHTML =
+    `<div class="group"><div class="btns"><button class="primary" data-new="card">New card payment</button><button class="primary" data-new="ach">New ACH payment</button></div></div>` +
+    FREE.map(([g, evs], gi) => `<div class="group"><div class="group-label">${g}</div><div class="btns">${evs.map((ev, i) => {
+      const k = M.EVENTS[ev.type][0];
+      const dim = k !== 'fact' && !legal.includes(ev.type);
+      return `<button data-g="${gi}" data-i="${i}" class="${dim ? 'dim' : ''}" title="${dim ? 'Not legal now: try it and see' : ''}">${short(ev)}</button>`;
+    }).join('')}</div></div>`).join('') +
+    `<p class="legend">Dashed buttons are commands that aren't legal right now; press them to see the rejection. PSP facts are never dashed: the PSP can say anything, any time.</p>`;
+  document.querySelectorAll('[data-new]').forEach(b => b.onclick = () => { prev = null; S = M.initial(b.dataset.new); stepIdx = -1; render(); });
+  document.querySelectorAll('#freeplay [data-g]').forEach(b => b.onclick = () => dispatch(FREE[+b.dataset.g][1][+b.dataset.i]));
+
+  // scenarios
+  document.getElementById('tabs').innerHTML = SCENARIOS.map((sc, i) => `<button class="tab ${i === active ? 'active' : ''}" data-tab="${i}">${sc.title}</button>`).join('');
+  document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => startScenario(+b.dataset.tab));
+  const sc = SCENARIOS[active];
+  document.getElementById('scenario').innerHTML = `<div class="scenario-desc">${sc.desc}</div>
+    <div class="steps"><button data-restart>Restart this walkthrough</button>${sc.steps.map((ev, i) =>
+      `<button data-step="${i}" class="${i < stepIdx ? 'done' : i === stepIdx ? 'next' : 'dim'}">${i + 1}. ${M.label(ev)}</button>`).join('')}</div>`;
+  document.querySelector('[data-restart]').onclick = () => startScenario(active);
+  document.querySelectorAll('[data-step]').forEach(b => b.onclick = () => {
+    const i = +b.dataset.step; if (i !== stepIdx) return;
+    stepIdx++; dispatch(sc.steps[i]);
+  });
+
+  // table
+  document.getElementById('table-title').textContent = `Transition table: ${s.method === 'card' ? 'card' : 'ACH'}`;
+  const rows = M.ROWS.filter(r => r.m === s.method);
+  document.getElementById('table').innerHTML = '<tr><th>From</th><th>Event</th><th>To</th><th>What happens</th></tr>' + rows.map(r =>
+    `<tr class="${r.from.includes(s.state) ? 'live' : ''}"><td>${r.from.map(x => M.STATES[x]).join('<br>')}</td><td>${r.on.map(t => M.label({ type: t })).join('<br>')}</td><td>${M.STATES[r.to] || r.to}</td><td>${r.what}</td></tr>`).join('');
+}
+
+function startScenario(i) { active = i; stepIdx = 0; prev = null; S = M.initial(SCENARIOS[i].method); render(); }
+startScenario(0);
+</script>
+</body>
+</html>
