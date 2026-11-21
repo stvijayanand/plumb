@@ -94,6 +94,16 @@ _Avoid_: PSP receivable, customer receivable
 The move of the platform's own share of a settlement (platform fee minus PSP fee) out of the FBO account into the platform's operating cash, posted with each settlement so the FBO account holds only merchant money.
 _Avoid_: Fee withdrawal, revenue transfer
 
+### Payments
+
+**Attempt**:
+One try at collecting a payment through the PSP. A payment has up to three attempts, each with its own PSP reference.
+_Avoid_: Retry (when meaning the attempt itself), charge
+
+**Idempotency key**:
+A key the client sends with a request so that retrying the same request has its effect only once.
+_Avoid_: Request id, dedup key
+
 ### Risk
 
 **Merchant risk policy**:
